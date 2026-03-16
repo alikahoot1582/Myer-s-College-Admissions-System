@@ -18,6 +18,7 @@ NEWSLETTER_URL = "https://www.myers.edu.pk/newsletterdec25.pdf"
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
+    # Added 'hospital_born' to the schema (making it 11 columns total)
     c.execute('''
         CREATE TABLE IF NOT EXISTS registrations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -25,6 +26,7 @@ def init_db():
             student_name TEXT,
             applied_class TEXT,
             dob TEXT,
+            hospital_born TEXT,
             father_name TEXT,
             father_cnic TEXT,
             mother_name TEXT,
@@ -39,9 +41,12 @@ def init_db():
 def save_to_db(data):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
+    # Updated to match the 11 data points provided in the form
     query = '''
         INSERT INTO registrations 
-        (submission_date, student_name, applied_class, dob, father_name, father_cnic, mother_name, medical_history, emergency_instructions, undertaking_accepted)
+        (submission_date, student_name, applied_class, dob, hospital_born, 
+         father_name, father_cnic, mother_name, medical_history, 
+         emergency_instructions, undertaking_accepted)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     '''
     c.execute(query, data)
@@ -56,11 +61,10 @@ st.set_page_config(page_title=f"{SCHOOL_NAME} Admission", layout="wide", page_ic
 # Sidebar with Logo and Resources
 with st.sidebar:
     if os.path.exists(LOGO_PATH):
-        st.image(LOGO_PATH, use_container_width=True)
+        st.image(LOGO_PATH, width=250) # Fixed deprecated use_container_width
     
     st.title("Resources")
     
-    # Handbook Download
     if os.path.exists(HANDBOOK_PATH):
         with open(HANDBOOK_PATH, "rb") as f:
             st.download_button(
@@ -68,12 +72,10 @@ with st.sidebar:
                 data=f,
                 file_name="Myers_Student_Handbook.pdf",
                 mime="application/pdf",
-                use_container_width=True
+                width="stretch"
             )
     
-    # Newsletter Link
-    st.link_button("📰 View December Newsletter", NEWSLETTER_URL, use_container_width=True)
-    
+    st.link_button("📰 View December Newsletter", NEWSLETTER_URL, width="stretch")
     st.divider()
     st.info("Registration fee Rs. 300/- is non-refundable.")
 
@@ -133,9 +135,10 @@ with st.form("myers_registration"):
     if st.form_submit_button("Submit Application"):
         if agree and s_name and f_name:
             med_summary = f"Measles: {m_measles}, Mumps: {m_mumps}, Rubella: {m_rubella}, Pox: {m_pox}"
+            # This list now contains exactly 11 items to match the 11 columns above
             submission_data = (
                 datetime.now().strftime("%Y-%m-%d %H:%M"),
-                s_name, applied_class, str(dob), f_name, f_cnic, m_name, med_summary, emergency_instr, 1
+                s_name, applied_class, str(dob), hospital, f_name, f_cnic, m_name, med_summary, emergency_instr, 1
             )
             save_to_db(submission_data)
             st.success("✅ Application successfully submitted to the database!")
