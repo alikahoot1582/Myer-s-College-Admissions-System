@@ -6,7 +6,7 @@ from datetime import date, datetime
 
 # --- 1. LIVE API CONFIGURATION ---
 # PASTE YOUR LIVE GROQ API KEY HERE
-LIVE_API_KEY = "PASTE_YOUR_GROQ_API_KEY_HERE"
+LIVE_API_KEY = "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"
 
 client = Groq(api_key=LIVE_API_KEY)
 
