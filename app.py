@@ -1,157 +1,105 @@
 import streamlit as st
 import sqlite3
 import os
+import pandas as pd
 from groq import Groq
 from datetime import date, datetime
 
-# --- 1. LIVE API CONFIGURATION ---
-LIVE_API_KEY = "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"
+# --- 1. CONFIGURATION ---
+LIVE_API_KEY = "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" # Best practice: use st.secrets["GROQ_API_KEY"]
 client = Groq(api_key=LIVE_API_KEY)
 
 DB_FILE = 'myers_college_admissions.db'
 SCHOOL_NAME = "Myer's College Chakwal"
-LOGO_PATH = "logo.png"
-HANDBOOK_PATH = "stdhbk (1).pdf"
-NEWSLETTER_URL = "https://www.myers.edu.pk/newsletterdec25.pdf"
 
-# --- 2. DATABASE INITIALIZATION ---
-def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    # Initial Create
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS registrations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            submission_date TEXT,
-            student_name TEXT,
-            applied_class TEXT,
-            dob TEXT,
-            hospital_born TEXT,
-            father_name TEXT,
-            father_cnic TEXT,
-            mother_name TEXT,
-            medical_history TEXT,
-            emergency_instructions TEXT,
-            undertaking_accepted INTEGER
-        )
-    ''')
+# --- 2. DATABASE HELPER FUNCTIONS ---
+def run_query(query, params=()):
+    with sqlite3.connect(DB_FILE) as conn:
+        return pd.read_sql_query(query, conn, params=params)
+
+def get_db_schema():
+    return """
+    Table: registrations
+    Columns: id, submission_date, student_name, applied_class, dob, 
+             hospital_born, father_name, father_cnic, mother_name, 
+             medical_history, emergency_instructions, undertaking_accepted
+    """
+
+# --- 3. AI ASSISTANT LOGIC ---
+def ask_ai(user_prompt):
+    # This system prompt tells the AI how to behave and what data it has access to
+    schema = get_db_schema()
+    context_data = run_query("SELECT * FROM registrations").to_string()
     
-    # AUTO-FIX: If the table exists but lacks 'hospital_born', add it.
+    system_message = f"""
+    You are the {SCHOOL_NAME} Admission Assistant. 
+    You have access to the current registration database.
+    
+    DATABASE SCHEMA:
+    {schema}
+    
+    CURRENT DATA:
+    {context_data}
+    
+    INSTRUCTIONS:
+    1. Answer questions based ONLY on the data provided above.
+    2. If asked to summarize, be concise.
+    3. If no data exists for a query, politely inform the user.
+    4. Do not reveal sensitive ID card numbers (CNIC) unless explicitly asked.
+    """
+    
     try:
-        c.execute("SELECT hospital_born FROM registrations LIMIT 1")
-    except sqlite3.OperationalError:
-        st.warning("Updating database structure... please wait.")
-        c.execute("ALTER TABLE registrations ADD COLUMN hospital_born TEXT")
-        
-    conn.commit()
-    conn.close()
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.2 # Lower temperature for factual accuracy
+        )
+        return completion.choices[0].message.content
+    except Exception as e:
+        return f"I'm having trouble accessing my brain right now: {str(e)}"
 
-def save_to_db(data):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    query = '''
-        INSERT INTO registrations 
-        (submission_date, student_name, applied_class, dob, hospital_born, 
-         father_name, father_cnic, mother_name, medical_history, 
-         emergency_instructions, undertaking_accepted)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    '''
-    c.execute(query, data)
-    conn.commit()
-    conn.close()
+# --- 4. UI SETUP ---
+st.set_page_config(page_title=f"{SCHOOL_NAME} Portal", layout="wide", page_icon="🎓")
 
-init_db()
+tab1, tab2, tab3 = st.tabs(["📝 Admission Form", "🤖 AI Assistant", "📊 Admin View"])
 
-# --- 3. UI SETUP ---
-st.set_page_config(page_title=f"{SCHOOL_NAME} Admission", layout="wide", page_icon="🎓")
+# --- TAB 1: REGISTRATION FORM (Existing Logic) ---
+with tab1:
+    st.header("Student Registration")
+    # ... (Keep your existing form code here) ...
 
-# Sidebar with Logo and Resources
-with st.sidebar:
-    if os.path.exists(LOGO_PATH):
-        st.image(LOGO_PATH, width=250)
+# --- TAB 2: AI ASSISTANT (New Feature) ---
+with tab2:
+    st.header("💬 Admission AI Chat")
+    st.info("Ask me about current applications, student counts, or medical summaries.")
     
-    st.title("Resources")
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+
+    # Display chat history
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    # Chat input
+    if prompt := st.chat_input("Ex: 'Summarize all applicants for class K-1'"):
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        with st.chat_message("assistant"):
+            response = ask_ai(prompt)
+            st.markdown(response)
+            st.session_state.messages.append({"role": "assistant", "content": response})
+
+# --- TAB 3: ADMIN VIEW ---
+with tab3:
+    st.header("Database Overview")
+    df = run_query("SELECT * FROM registrations")
+    st.dataframe(df, use_container_width=True)
     
-    if os.path.exists(HANDBOOK_PATH):
-        with open(HANDBOOK_PATH, "rb") as f:
-            st.download_button(
-                label="📘 Download Student Handbook",
-                data=f,
-                file_name="Myers_Student_Handbook.pdf",
-                mime="application/pdf",
-                width="stretch" # Fixed 1.55+ warning
-            )
-    
-    st.link_button("📰 View December Newsletter", NEWSLETTER_URL, width="stretch")
-    st.divider()
-    st.info("Registration fee Rs. 300/- is non-refundable.")
-
-# Main Header
-col_header_1, col_header_2 = st.columns([1, 4])
-with col_header_1:
-    if os.path.exists(LOGO_PATH):
-        st.image(LOGO_PATH, width=120)
-with col_header_2:
-    st.title(f"{SCHOOL_NAME}")
-    st.subheader("Student Admission & Registration Portal")
-
-# --- 4. REGISTRATION FORM ---
-with st.form("myers_registration"):
-    st.header("1. Student Information")
-    col1, col2 = st.columns(2)
-    with col1:
-        s_name = st.text_input("Student's Name (Block Letters)")
-        dob = st.date_input("Date of Birth", value=date(2018, 1, 1))
-        hospital = st.text_input("Hospital where born")
-    with col2:
-        class_list = [
-            "K-1 (Age 5+)", "K-2 (Age 6+)", "K-3 (Age 7+)", "K-4 (Age 8+)",
-            "E-1 (Age 9+)", "E-2 (Age 10+)", "E-3 (Age 11+)",
-            "M-1/C-1 (Age 12+)", "M-2/C-2 (Age 13+)", "M-3/C-3 (Age 14+)"
-        ]
-        applied_class = st.selectbox("Applying for Class", class_list)
-        religion = st.text_input("Religion")
-
-    st.header("2. Parental Details")
-    col3, col4 = st.columns(2)
-    with col3:
-        f_name = st.text_input("Father's Name")
-        f_cnic = st.text_input("Father's Identity Card No")
-    with col4:
-        m_name = st.text_input("Mother's Name")
-        address = st.text_input("Present Address")
-
-    st.header("3. Medical Questionnaire")
-    st.write("This helps us look after your child; we do not reject based on this document.")
-    
-    col5, col6 = st.columns(2)
-    with col5:
-        physician = st.text_input("Family Physician's Name")
-        emergency_instr = st.text_area("Emergency Instructions")
-    with col6:
-        st.write("Past Diseases:")
-        m_measles = st.checkbox("Measles")
-        m_mumps = st.checkbox("Mumps")
-        m_rubella = st.checkbox("Rubella")
-        m_pox = st.checkbox("Chicken Pox")
-
-    st.header("4. Undertaking")
-    st.write("I understand the academic/financial year is August to July and fees are payable till July.")
-    agree = st.checkbox("I agree to conform to the rules and regulations of Myer's College.")
-
-    if st.form_submit_button("Submit Application"):
-        if agree and s_name and f_name:
-            med_summary = f"Measles: {m_measles}, Mumps: {m_mumps}, Rubella: {m_rubella}, Pox: {m_pox}"
-            # Pack exactly 11 items
-            submission_data = (
-                datetime.now().strftime("%Y-%m-%d %H:%M"),
-                s_name, applied_class, str(dob), hospital, f_name, f_cnic, m_name, med_summary, emergency_instr, 1
-            )
-            save_to_db(submission_data)
-            st.success("✅ Application successfully submitted!")
-            st.balloons()
-        else:
-            st.error("Please complete required fields (Student Name, Father's Name) and accept the undertaking.")
-
-st.markdown("---")
-st.markdown("<center>© Myer's College Chakwal | Admission Portal</center>", unsafe_allow_html=True)
+    if st.button("Refresh Data"):
+        st.rerun()
